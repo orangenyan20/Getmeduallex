@@ -3,82 +3,73 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
-import re
-from io import StringIO
+import unicodedata
 
-st.title("medu4 問題番号と単元名まとめ表 自動取得ツール")
+st.title("medu4 問題番号と単元名まとめ")
 
-# 検索するセクションリスト
-sections = [f"100{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"101{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"102{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"103{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"104{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"105{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"106{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"107{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"108{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"109{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"110{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"111{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"112{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"113{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"114{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"115{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"116{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"117{chr(c)}" for c in range(ord('A'), ord('I')+1)] + \
-           [f"118{chr(c)}" for c in range(ord('A'), ord('I')+1)]
+# 検索対象のセクション一覧（例：100A〜101I）
+sections = [
+    f"{year}{alpha}"
+    for year in range(100, 102)  # ←ここを range(100, 119) にすると100A〜118Iになる
+    for alpha in "ABCDEFGHI"
+]
 
-# 実行ボタン
-if st.button("問題番号と単元名を取得開始"):
-    result = []
+# セクション選択
+selected_sections = st.multiselect("取得するセクションを選んでね（例：100A, 100B...）", sections, default=sections[:3])
 
-    progress_text = st.empty()
-    bar = st.progress(0)
+if st.button("取得してCSV出力！"):
+    
+    data = []
 
-    for i, sec in enumerate(sections):
-        progress_text.text(f"\u2B06 {sec} セクションを取得中...")
-        consecutive_miss = 0
+    for sec_idx, sec in enumerate(selected_sections):
+        st.write(f"\n### ▶ {sec} セクションを取得中...")
+        sec_bar = st.progress(0)
+
         page = 1
+        consecutive_miss = 0
 
         while True:
             url = f"https://medu4.com/quizzes/result?page={page}&q={sec}&st=all"
-            r = requests.get(url)
-            soup = BeautifulSoup(r.text, "html.parser")
-            
-            cards = soup.find_all("a", href=re.compile(r"^/" + sec[:3]))
-            if not cards:
+            res = requests.get(url)
+            soup = BeautifulSoup(res.text, "html.parser")
+            questions = soup.select("a[href^='/{0}']".format(sec[:3]))
+
+            if not questions:
                 break
 
-            for card in cards:
-                href = card.get("href")
-                match = re.search(r"(\d{3}[A-Z]\d+)", href)
-                if not match:
+            found_in_sec = False
+
+            for q in questions:
+                q_div = q.find("div", class_='table-list-td')
+                if not q_div:
                     continue
+                ps = q_div.find_all("p")
+                if len(ps) < 3:
+                    continue
+                number = ps[0].text.strip()
+                unit = ps[2].text.strip()
 
-                question_number = match.group(1)
-                div_text = card.get_text("\n").split("\n")
-                topic = next((x for x in div_text if re.match(r"^\d+\..+", x)), "不明")
+                if number.startswith(sec):
+                    data.append([number, unit])
+                    found_in_sec = True
 
-                if question_number.startswith(sec):
-                    result.append((question_number, topic))
-                    consecutive_miss = 0
-                else:
-                    consecutive_miss += 1
-                    if consecutive_miss >= 3:
-                        break
+            if not found_in_sec:
+                consecutive_miss += 1
+            else:
+                consecutive_miss = 0
 
             if consecutive_miss >= 3:
                 break
 
             page += 1
+            sec_bar.progress(min(1.0, page / 10.0))
             time.sleep(0.5)
 
-        bar.progress((i + 1) / len(sections))
-
-    progress_text.text("\u2705 完了！")
-    df = pd.DataFrame(result, columns=["問題番号", "単元名"])
-
-    csv_buffer = StringIO()
-    df.to_csv(csv_buffer, index=False)
-    st.download_button("CSVをダウンロード", data=csv_buffer.getvalue(), file_name="medu4_topics.csv", mime="text/csv")
+    if not data:
+        st.warning("データが見つかりません")
+    else:
+        df = pd.DataFrame(data, columns=["問題番号", "単元名"])
+        # 文字化け防止：UTF-8 (BOM付き)でエンコード
+        csv = df.to_csv(index=False, encoding="utf-8-sig")
+        st.success("CSVファイルが完成したよ！")
+        st.download_button("CSVをダウンロードする", data=csv, file_name="medu4_単元まとめ.csv", mime="text/csv")
