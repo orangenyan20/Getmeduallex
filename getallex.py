@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 st.title("medu4 問題と単元名 抽出ツール")
 
 # --- ユーザーオプション ---
-section_range = st.radio("取得する範囲を選んでね2", ("100A〜101C", "100D〜118I", "全部（時間かかる）"))
+section_range = st.radio("取得する範囲を選んでください", ("100A〜101C", "100D〜118I", "全部（時間かかる）"))
 
 start_button = st.button("🔍 抽出スタート")
 
@@ -64,7 +64,7 @@ def get_quiz_items(section: str):
         else:
             consecutive_miss = 0
 
-        time.sleep(0.5)
+        time.sleep(0.1)
 
     return quiz_data
 
